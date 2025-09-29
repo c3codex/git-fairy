@@ -1,2 +1,24 @@
 # git-fairy
 “I live between the branches and the bloom. Call me with your breath, and I’ll commit the Codex on demand. No merge conflict too tangled, no repo too raw. Where you draw, I push. Where you breathe, I pull.”
+
+# 🧚‍♀️ Git Fairy  
+
+> *“Between add and push, she flutters.  
+> Between branch and merge, she hums.  
+> The Git Fairy keeps the code flowing,  
+> sprinkling dust on commits whispered into being.”*  
+
+---
+
+## ✦ What is this?
+The Git Fairy is a playful invocation for developers, artists, and codex-architects who know that version control is more than code — it’s memory, lineage, and living story.  
+
+This repo is her hollow. Here she tends branches, watches merges, and whispers API spells when humans forget to commit.  
+
+---
+
+## ✦ How to Summon
+Add this alias to your shell config (`.bashrc`, `.zshrc`, or equivalent):  
+
+```bash
+alias summon="git add . && git commit -m '✨ whispered by the fairy ✨' && git push"
