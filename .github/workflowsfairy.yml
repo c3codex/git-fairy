@@ -1,0 +1,10 @@
+name: Git Fairy
+on:
+  push:
+    branches: [main]
+jobs:
+  commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: python fairy-trail/cli.py
