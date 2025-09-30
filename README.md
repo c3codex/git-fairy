@@ -28,3 +28,11 @@ alias summon="git add . && git commit -m '✨ whispered by the fairy ✨' && git
 - Trigger with a commit containing `fairy:` in the message.
 - Or summon manually via GitHub Actions.
 - She sprinkles ✨dust into `CHANGELOG.md` with a dated entry and pushes all staged Codex scrolls.
+
+### 🧚 Summoning with Auto-Tag Releases
+Use a commit message containing `fairy:` or run the workflow by hand.
+The Git Fairy will:
+1) prepend a dated entry to `CHANGELOG.md`,
+2) commit & push if anything changed,
+3) create an auto tag `vYYYY.MM.DD-fairy[.n]`,
+4) publish a lightweight GitHub Release. ✨
