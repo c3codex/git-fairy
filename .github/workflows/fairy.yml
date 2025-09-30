@@ -1,10 +1,54 @@
-name: Git Fairy
+name: git-fairy
+
 on:
+  workflow_dispatch:
   push:
-    branches: [main]
+    branches: [ main ]
+    # only wake if commit has "fairy:" in the message
+    # (so normal commits are left untouched)
+    paths:
+      - "docs/**"
+      - "fairy-trail/**"
+      - "api/**"
+      - "examples/**"
+      - "CHANGELOG.md"
+
+permissions:
+  contents: write
+
 jobs:
-  commit:
+  sprinkle-dust:
+    if: contains(github.event.head_commit.message, 'fairy:') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
-      - run: python fairy-trail/cli.py
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure fairy author
+        run: |
+          git config user.name  "git-fairy[bot]"
+          git config user.email "git-fairy@users.noreply.github.com"
+
+      - name: Fairy touch — update CHANGELOG
+        run: |
+          if [ -f CHANGELOG.md ]; then
+            sed -i "1i ## $(date -u +%Y-%m-%d) – fairy pass ✨" CHANGELOG.md
+            git add CHANGELOG.md
+          fi
+
+      - name: Stage all
+        run: git add -A
+
+      - name: Commit if changes
+        run: |
+          if ! git diff --cached --quiet; then
+            git commit -m "✨ Fairy commit: dust sprinkled"
+          else
+            echo "No changes — fairy rests."
+          fi
+
+      - name: Push to main
+        run: git push origin HEAD:main
