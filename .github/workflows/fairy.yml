@@ -150,6 +150,47 @@ jobs:
   label-prs:
     name: label & tidy PRs (bonus)
     if: github.event_name == 'pull_request'
+
+    name: git-fairy
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "17 13 * * *"  # daily at 13:17 UTC — change if you like
+
+permissions:
+  contents: write
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run the fairy sweep
+        run: |
+          python scripts/fairy_commit.py
+        env:
+          FAIRY_AUTHOR_NAME: "🧚 Git Fairy"
+          FAIRY_AUTHOR_EMAIL: "git-fairy@users.noreply.github.com"
+
+      - name: Commit changes (if any)
+        run: |
+          if [[ -n "$(git status --porcelain CHANGELOG.md)" ]]; then
+            git config user.name "${{ env.FAIRY_AUTHOR_NAME }}"
+            git config user.email "${{ env.FAIRY_AUTHOR_EMAIL }}"
+            git add CHANGELOG.md
+            git commit -m "🧚 fairy dust: update CHANGELOG from fairy notes"
+            git push
+          else
+            echo "No new fairy notes — nothing to commit."
+          fi
     runs-on: ubuntu-latest
     steps:
       - uses: actions/labeler@v5
