@@ -22,3 +22,9 @@ Add this alias to your shell config (`.bashrc`, `.zshrc`, or equivalent):
 
 ```bash
 alias summon="git add . && git commit -m '✨ whispered by the fairy ✨' && git push"
+
+## 🧚 Git Fairy Summons (Medium Dust)
+
+- Trigger with a commit containing `fairy:` in the message.
+- Or summon manually via GitHub Actions.
+- She sprinkles ✨dust into `CHANGELOG.md` with a dated entry and pushes all staged Codex scrolls.
