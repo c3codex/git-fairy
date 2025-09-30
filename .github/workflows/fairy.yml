@@ -4,21 +4,15 @@ on:
   workflow_dispatch:
   push:
     branches: [ main ]
-    # only wake if commit has "fairy:" in the message
-    # (so normal commits are left untouched)
-    paths:
-      - "docs/**"
-      - "fairy-trail/**"
-      - "api/**"
-      - "examples/**"
-      - "CHANGELOG.md"
+    # wakes on any push to main, but most logic is gated by "fairy:" commits
 
 permissions:
   contents: write
 
 jobs:
   sprinkle-dust:
-    if: contains(github.event.head_commit.message, 'fairy:') || github.event_name == 'workflow_dispatch'
+    # run if manually dispatched OR commit message contains "fairy:"
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'fairy:')
     runs-on: ubuntu-latest
 
     steps:
@@ -32,23 +26,63 @@ jobs:
           git config user.name  "git-fairy[bot]"
           git config user.email "git-fairy@users.noreply.github.com"
 
-      - name: Fairy touch — update CHANGELOG
+      - name: Fairy touch — prepend dated entry to CHANGELOG
         run: |
           if [ -f CHANGELOG.md ]; then
-            sed -i "1i ## $(date -u +%Y-%m-%d) – fairy pass ✨" CHANGELOG.md
+            TS="$(date -u +'%Y-%m-%d %H:%M UTC')"
+            sed -i "1i ## $TS — fairy pass ✨" CHANGELOG.md
+            echo "" | cat - CHANGELOG.md > /tmp/out && mv /tmp/out CHANGELOG.md
             git add CHANGELOG.md
           fi
 
-      - name: Stage all
+      - name: Stage all Codex scrolls
         run: git add -A
 
       - name: Commit if changes
+        id: fairy_commit
         run: |
           if ! git diff --cached --quiet; then
             git commit -m "✨ Fairy commit: dust sprinkled"
+            echo "changed=true" >> $GITHUB_OUTPUT
           else
-            echo "No changes — fairy rests."
+            echo "changed=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Push to main
+        if: steps.fairy_commit.outputs.changed == 'true'
         run: git push origin HEAD:main
+
+      # --- Auto-tag + release (medium dust++) ---
+      - name: Compute version tag
+        id: tag
+        run: |
+          BASE="v$(date -u +'%Y.%m.%d')-fairy"
+          # bump a suffix if today's tag already exists
+          N=0
+          TAG="$BASE"
+          while git rev-parse "$TAG" >/dev/null 2>&1; do
+            N=$((N+1))
+            TAG="${BASE}.${N}"
+          done
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Create git tag
+        run: |
+          git tag "${{ steps.tag.outputs.tag }}"
+          git push origin "${{ steps.tag.outputs.tag }}"
+
+      - name: Generate release notes (lightweight)
+        id: notes
+        run: |
+          TITLE="${{ steps.tag.outputs.tag }}"
+          echo "title=$TITLE" >> $GITHUB_OUTPUT
+          echo "notes=Automated fairy release. See CHANGELOG for details. ✨" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.notes.outputs.title }}
+          body: ${{ steps.notes.outputs.notes }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
