@@ -1,63 +1,119 @@
-name: git-fairy
+name: git-fairy (best)
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "23 3 * * *"       # nightly pass, adjust as you like
   push:
-    branches: [ main ]
-    # wakes on any push to main, but most logic is gated by "fairy:" commits
+    branches: [ main ]          # runs on main; gated by commit message
 
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
-  sprinkle-dust:
-    # run if manually dispatched OR commit message contains "fairy:"
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'fairy:')
+  sprinkle:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, 'fairy:'))
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out repo
+      - name: Check out
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Configure fairy author
+      - name: Configure author
         run: |
           git config user.name  "git-fairy[bot]"
           git config user.email "git-fairy@users.noreply.github.com"
 
-      - name: Fairy touch — prepend dated entry to CHANGELOG
+      - name: Find previous tag
+        id: prev
         run: |
-          if [ -f CHANGELOG.md ]; then
-            TS="$(date -u +'%Y-%m-%d %H:%M UTC')"
-            sed -i "1i ## $TS — fairy pass ✨" CHANGELOG.md
-            echo "" | cat - CHANGELOG.md > /tmp/out && mv /tmp/out CHANGELOG.md
-            git add CHANGELOG.md
+          if git describe --tags --abbrev=0 >/dev/null 2>&1; then
+            echo "tag=$(git describe --tags --abbrev=0)" >> $GITHUB_OUTPUT
+          else
+            echo "tag=" >> $GITHUB_OUTPUT
           fi
 
-      - name: Stage all Codex scrolls
+      - name: Collect commits since previous tag (or all)
+        id: log
+        run: |
+          if [ -n "${{ steps.prev.outputs.tag }}" ]; then
+            RANGE="${{ steps.prev.outputs.tag }}..HEAD"
+          else
+            RANGE="$(git rev-list --max-parents=0 HEAD | tail -n1)..HEAD"
+          fi
+          git log --pretty=format:'%s|%h' $RANGE > /tmp/commits.txt
+          echo "range=$RANGE" >> $GITHUB_OUTPUT
+          echo "count=$(wc -l < /tmp/commits.txt)" >> $GITHUB_OUTPUT
+
+      - name: Build pretty CHANGELOG slice
+        id: changelog
+        run: |
+          cat > /tmp/chunk.md <<'MD'
+          ### ✨ Fairy Pass
+          _Auto-curated since last tag._
+
+          #### 🚀 Features
+          MD
+          awk -F'|' '/^feat(\(.+\))?:/ {sub(/^feat(\(.+\))?: /,""); printf "- %s (%s)\n",$1,$2}' /tmp/commits.txt >> /tmp/chunk.md
+          echo -e "\n#### 🐛 Fixes" >> /tmp/chunk.md
+          awk -F'|' '/^fix(\(.+\))?:/ {sub(/^fix(\(.+\))?: /,""); printf "- %s (%s)\n",$1,$2}' /tmp/commits.txt >> /tmp/chunk.md
+          echo -e "\n#### 📝 Docs" >> /tmp/chunk.md
+          awk -F'|' '/^docs(\(.+\))?:/ {sub(/^docs(\(.+\))?: /,""); printf "- %s (%s)\n",$1,$2}' /tmp/commits.txt >> /tmp/chunk.md
+          echo -e "\n#### 🧹 Chore" >> /tmp/chunk.md
+          awk -F'|' '/^(chore|refactor|style|test)(\(.+\))?:/ {sub(/^[^:]+: /,""); printf "- %s (%s)\n",$1,$2}' /tmp/commits.txt >> /tmp/chunk.md
+
+          # If sections are empty, add a friendly note
+          for h in "Features" "Fixes" "Docs" "Chore"; do
+            if ! awk "/^#### .*${h}/{flag=1;next}/^#### /{flag=0}flag" /tmp/chunk.md | grep -q '^-'; then
+              sed -i "s/#### .*${h}/#### $(echo $h)\n- (no entries this pass)/" /tmp/chunk.md
+            fi
+          done
+
+          # Prepend dated header to CHANGELOG.md
+          TS="$(date -u +'%Y-%m-%d %H:%M UTC')"
+          {
+            echo "## $TS — fairy best ✨"
+            echo
+            cat /tmp/chunk.md
+            echo
+          } > /tmp/header.md
+
+          if [ -f CHANGELOG.md ]; then
+            cat /tmp/header.md CHANGELOG.md > /tmp/NEWCHANGELOG.md
+          else
+            cat /tmp/header.md > /tmp/NEWCHANGELOG.md
+          fi
+          mv /tmp/NEWCHANGELOG.md CHANGELOG.md
+          git add CHANGELOG.md
+
+      - name: Stage all changes (if any)
         run: git add -A
 
-      - name: Commit if changes
-        id: fairy_commit
+      - name: Commit
+        id: commit
         run: |
           if ! git diff --cached --quiet; then
-            git commit -m "✨ Fairy commit: dust sprinkled"
+            git commit -m "fairy: sprinkle dust + update CHANGELOG"
             echo "changed=true" >> $GITHUB_OUTPUT
           else
             echo "changed=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Push to main
-        if: steps.fairy_commit.outputs.changed == 'true'
+      - name: Push
+        if: steps.commit.outputs.changed == 'true'
         run: git push origin HEAD:main
 
-      # --- Auto-tag + release (medium dust++) ---
-      - name: Compute version tag
+      - name: Compute today tag
         id: tag
         run: |
           BASE="v$(date -u +'%Y.%m.%d')-fairy"
-          # bump a suffix if today's tag already exists
           N=0
           TAG="$BASE"
           while git rev-parse "$TAG" >/dev/null 2>&1; do
@@ -66,23 +122,36 @@ jobs:
           done
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
-      - name: Create git tag
+      - name: Create tag
         run: |
           git tag "${{ steps.tag.outputs.tag }}"
           git push origin "${{ steps.tag.outputs.tag }}"
 
-      - name: Generate release notes (lightweight)
-        id: notes
+      - name: Gather release body
+        id: body
         run: |
-          TITLE="${{ steps.tag.outputs.tag }}"
-          echo "title=$TITLE" >> $GITHUB_OUTPUT
-          echo "notes=Automated fairy release. See CHANGELOG for details. ✨" >> $GITHUB_OUTPUT
+          echo "### Release Notes" > /tmp/REL.md
+          echo "" >> /tmp/REL.md
+          cat /tmp/chunk.md >> /tmp/REL.md
+          echo "" >> /tmp/REL.md
+          echo "_Range:_ ${{ steps.log.outputs.range }}" >> /tmp/REL.md
 
-      - name: Create GitHub Release
+      - name: Upload release (with dist/* assets if present)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
-          name: ${{ steps.notes.outputs.title }}
-          body: ${{ steps.notes.outputs.notes }}
+          name: ${{ steps.tag.outputs.tag }} — fairy best
+          body_path: /tmp/REL.md
+          files: |
+            dist/**
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  label-prs:
+    name: label & tidy PRs (bonus)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/labeler@v5
+        with:
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"
