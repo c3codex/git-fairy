@@ -1,18 +1,27 @@
-name: git-fairy (best)
+name: git-fairy
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
   schedule:
-    - cron: "23 3 * * *"       # nightly pass, adjust as you like
+    - cron: "23 3 * * *"        # daily run at 03:23 UTC (change as you like)
   push:
-    branches: [ main ]          # runs on main; gated by commit message
-
+    branches: [ main ]          # allow on push…
+    # Only run on push when the commit message includes "fairy:"
+    # (we'll also guard with an IF below)
 permissions:
   contents: write
   issues: write
   pull-requests: write
 
+env:
+  FAIRY_AUTHOR_NAME: "🧚 Git Fairy"
+  FAIRY_AUTHOR_EMAIL: "git-fairy@users.noreply.github.com"
+
 jobs:
+
+  # -----------------------------------------
+  # 1) SPRINKLE — build a CHANGELOG slice from commit messages
+  # -----------------------------------------
   sprinkle:
     if: |
       github.event_name == 'workflow_dispatch' ||
@@ -23,13 +32,12 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        with: { fetch-depth: 0 }
 
       - name: Configure author
         run: |
-          git config user.name  "git-fairy[bot]"
-          git config user.email "git-fairy@users.noreply.github.com"
+          git config user.name  "${{ env.FAIRY_AUTHOR_NAME }}"
+          git config user.email "${{ env.FAIRY_AUTHOR_EMAIL }}"
 
       - name: Find previous tag
         id: prev
@@ -69,14 +77,13 @@ jobs:
           echo -e "\n#### 🧹 Chore" >> /tmp/chunk.md
           awk -F'|' '/^(chore|refactor|style|test)(\(.+\))?:/ {sub(/^[^:]+: /,""); printf "- %s (%s)\n",$1,$2}' /tmp/commits.txt >> /tmp/chunk.md
 
-          # If sections are empty, add a friendly note
+          # Fill empty sections with a friendly note
           for h in "Features" "Fixes" "Docs" "Chore"; do
             if ! awk "/^#### .*${h}/{flag=1;next}/^#### /{flag=0}flag" /tmp/chunk.md | grep -q '^-'; then
               sed -i "s/#### .*${h}/#### $(echo $h)\n- (no entries this pass)/" /tmp/chunk.md
             fi
           done
 
-          # Prepend dated header to CHANGELOG.md
           TS="$(date -u +'%Y-%m-%d %H:%M UTC')"
           {
             echo "## $TS — fairy best ✨"
@@ -93,10 +100,7 @@ jobs:
           mv /tmp/NEWCHANGELOG.md CHANGELOG.md
           git add CHANGELOG.md
 
-      - name: Stage all changes (if any)
-        run: git add -A
-
-      - name: Commit
+      - name: Commit CHANGELOG (if changed)
         id: commit
         run: |
           if ! git diff --cached --quiet; then
@@ -106,11 +110,11 @@ jobs:
             echo "changed=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Push
+      - name: Push to main
         if: steps.commit.outputs.changed == 'true'
         run: git push origin HEAD:main
 
-      - name: Compute today tag
+      - name: Compute tag
         id: tag
         run: |
           BASE="v$(date -u +'%Y.%m.%d')-fairy"
@@ -127,70 +131,61 @@ jobs:
           git tag "${{ steps.tag.outputs.tag }}"
           git push origin "${{ steps.tag.outputs.tag }}"
 
-      - name: Gather release body
-        id: body
-        run: |
-          echo "### Release Notes" > /tmp/REL.md
-          echo "" >> /tmp/REL.md
-          cat /tmp/chunk.md >> /tmp/REL.md
-          echo "" >> /tmp/REL.md
-          echo "_Range:_ ${{ steps.log.outputs.range }}" >> /tmp/REL.md
-
-      - name: Upload release (with dist/* assets if present)
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: ${{ steps.tag.outputs.tag }} — fairy best
-          body_path: /tmp/REL.md
-          files: |
-            dist/**
+          body: |
+            ### Release Notes
+
+            ${{ steps.changelog.outputs.none || '' }}
+            (See CHANGELOG.md for details.)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  label-prs:
-    name: label & tidy PRs (bonus)
-    if: github.event_name == 'pull_request'
-
-    name: git-fairy
-
-on:
-  workflow_dispatch: {}
-  schedule:
-    - cron: "17 13 * * *"  # daily at 13:17 UTC — change if you like
-
-permissions:
-  contents: write
-
-jobs:
+  # -----------------------------------------
+  # 2) SWEEP — optional: parse inline “# fairy:” notes in files
+  #    Requires scripts/fairy_commit.py (lowercase path).
+  # -----------------------------------------
   sweep:
+    if: |
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' ||
+       (github.event_name == 'push' && contains(github.event.head_commit.message, 'fairy:')))
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Run the fairy sweep
+      - name: Run the fairy sweep (if script exists)
+        shell: bash
         run: |
-          python scripts/fairy_commit.py
-        env:
-          FAIRY_AUTHOR_NAME: "🧚 Git Fairy"
-          FAIRY_AUTHOR_EMAIL: "git-fairy@users.noreply.github.com"
+          if [ -f scripts/fairy_commit.py ]; then
+            python scripts/fairy_commit.py
+          else
+            echo "scripts/fairy_commit.py not found — skipping sweep."
+          fi
 
-      - name: Commit changes (if any)
+      - name: Commit sweep results (if any)
         run: |
-          if [[ -n "$(git status --porcelain CHANGELOG.md)" ]]; then
-            git config user.name "${{ env.FAIRY_AUTHOR_NAME }}"
+          if ! git diff --quiet; then
+            git config user.name  "${{ env.FAIRY_AUTHOR_NAME }}"
             git config user.email "${{ env.FAIRY_AUTHOR_EMAIL }}"
-            git add CHANGELOG.md
-            git commit -m "🧚 fairy dust: update CHANGELOG from fairy notes"
+            git add -A
+            git commit -m "🧚 fairy dust: apply sweep results"
             git push
           else
-            echo "No new fairy notes — nothing to commit."
+            echo "No sweep changes."
           fi
+
+  # -----------------------------------------
+  # 3) LABEL PULL REQUESTS — bonus nicety
+  # -----------------------------------------
+  label-prs:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/labeler@v5
