@@ -1,0 +1,11 @@
+docs:
+  - "**/*.md"
+  - "docs/**"
+chore:
+  - ".github/**"
+  - "scripts/**"
+art:
+  - "art/**"
+  - "assets/**"
+research:
+  - "research/**"
