@@ -36,3 +36,5 @@ The Git Fairy will:
 2) commit & push if anything changed,
 3) create an auto tag `vYYYY.MM.DD-fairy[.n]`,
 4) publish a lightweight GitHub Release. ✨
+
+_Fairy test: first sparkle._
